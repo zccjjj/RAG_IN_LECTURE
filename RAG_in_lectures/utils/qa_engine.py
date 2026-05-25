@@ -1,3 +1,4 @@
+import time
 import logging
 import requests
 
@@ -5,20 +6,9 @@ logger = logging.getLogger(__name__)
 
 
 def generate_answer(question, retrieved_chunks, ollama_url="http://localhost:11434",
-                    model="qwen2.5:7b", temperature=0.3, max_tokens=1024):
+                    model="qwen2.5:7b", temperature=0.3, max_tokens=1024, max_retries=3):
     """
-    基于检索到的上下文，使用 Ollama LLM 生成答案。
-
-    Args:
-        question: 用户问题
-        retrieved_chunks: 检索到的文本块列表
-        ollama_url: Ollama 服务地址
-        model: 文本模型名称
-        temperature: 生成温度
-        max_tokens: 最大生成 token 数
-
-    Returns:
-        生成的答案文本
+    基于检索到的上下文，使用 Ollama LLM 生成答案（带重试）。
     """
     # 拼接检索到的上下文
     context = "\n\n---\n\n".join([
@@ -26,7 +16,6 @@ def generate_answer(question, retrieved_chunks, ollama_url="http://localhost:114
         for chunk in retrieved_chunks
     ])
 
-    # 构造 RAG prompt
     prompt = f"""你是一个教学视频内容分析助手。请根据以下视频内容片段，准确回答用户的问题。
 如果提供的内容中找不到答案，请如实说明。回答应当简洁、准确、有条理。
 
@@ -38,27 +27,33 @@ def generate_answer(question, retrieved_chunks, ollama_url="http://localhost:114
 
 ## 回答："""
 
-    try:
-        response = requests.post(
-            f"{ollama_url}/v1/chat/completions",
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": "你是一个专业的教学内容分析助手，帮助用户理解视频中的教学内容。"},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": False
-            },
-            timeout=120
-        )
-        response.raise_for_status()
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
-    except requests.exceptions.RequestException as e:
-        logger.error(f"LLM generation failed: {e}")
-        return f"生成答案失败: {str(e)}"
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                f"{ollama_url}/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": "你是一个专业的教学内容分析助手，帮助用户理解视频中的教学内容。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": False
+                },
+                timeout=180
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                wait = 5 * (attempt + 1)
+                logger.warning(f"LLM attempt {attempt+1} failed, retrying in {wait}s: {e}")
+                time.sleep(wait)
+            else:
+                logger.error(f"LLM generation failed after {max_retries} attempts: {e}")
+                return f"生成答案失败: {str(e)}"
 
 
 def answer_questions(questions, vector_store, embedding_model,

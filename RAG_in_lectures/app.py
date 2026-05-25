@@ -60,7 +60,7 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in config.ALLOWED_EXTENSIONS
 
 
-def process_video_pipeline(session_id, video_path, questions):
+def process_video_pipeline(session_id, video_path, questions, language=None):
     """主处理流水线（在后台线程中运行）"""
     session_dir = os.path.join(config.PROCESSING_DIR, session_id)
     os.makedirs(session_dir, exist_ok=True)
@@ -76,10 +76,11 @@ def process_video_pipeline(session_id, video_path, questions):
 
         # Stage 2: 语音识别
         update_status(session_id, "正在进行语音识别...", 25)
+        whisper_language = language or config.WHISPER_LANGUAGE
         segments = transcribe_audio(
             audio_path,
             model_size=config.WHISPER_MODEL_SIZE,
-            language=config.WHISPER_LANGUAGE
+            language=whisper_language
         )
 
         # 保存转写结果
@@ -91,7 +92,10 @@ def process_video_pipeline(session_id, video_path, questions):
         frame_descriptions = describe_all_frames(
             frames_dir,
             ollama_url=config.OLLAMA_BASE_URL,
-            model=config.OLLAMA_VISION_MODEL
+            model=config.OLLAMA_VISION_MODEL,
+            timeout=config.FRAME_DESCRIBE_TIMEOUT,
+            max_retries=config.FRAME_DESCRIBE_MAX_RETRIES,
+            similarity_threshold=config.FRAME_SIMILARITY_THRESHOLD
         )
 
         # 保存帧描述
@@ -178,6 +182,9 @@ def upload_video():
     if not questions:
         return jsonify({"error": "请提供至少一个问题"}), 400
 
+    # 获取语言设置
+    language = request.form.get('language', '').strip() or None
+
     # 生成 session_id
     session_id = str(uuid.uuid4())[:8]
 
@@ -193,7 +200,7 @@ def upload_video():
     # 启动后台处理线程
     thread = threading.Thread(
         target=process_video_pipeline,
-        args=(session_id, video_path, questions),
+        args=(session_id, video_path, questions, language),
         daemon=True
     )
     thread.start()

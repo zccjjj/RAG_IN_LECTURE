@@ -94,16 +94,17 @@ python app.py
 
 1. 打开浏览器访问 http://localhost:5000
 2. 上传一个教学视频文件（支持 MP4/AVI/MKV/MOV/WebM）
-3. 在文本框中输入问题（每行一个问题）
-4. 点击"开始处理"，等待系统完成视频分析
-5. 查看生成的答案，或点击"下载文档"获取 Word 文件
+3. 选择视频语言（可选，默认自动检测；建议手动指定以避免口音导致的误识别）
+4. 在文本框中输入问题（每行一个问题）
+5. 点击"开始处理"，等待系统完成视频分析
+6. 查看生成的答案，或点击"下载文档"获取 Word 文件
 
 ## 处理流程说明
 
 1. **音频提取**：使用 ffmpeg 从视频中提取 16kHz 单声道 WAV 音频
-2. **关键帧提取**：每 5 秒截取一帧画面
-3. **语音识别**：Whisper 模型将音频转为带时间戳的文本
-4. **帧描述**：Ollama llava 模型描述每帧的视觉内容
+2. **关键帧提取**：每 10 秒截取一帧画面
+3. **语音识别**：Whisper 模型将音频转为带时间戳的文本（支持指定语言）
+4. **帧描述**：Ollama llava 模型描述每帧的视觉内容（自动跳过相似帧）
 5. **文本分块**：按 30 秒窗口（10 秒重叠）合并音频文本和帧描述
 6. **向量索引**：使用 sentence-transformers 向量化，构建 FAISS 索引
 7. **问答生成**：对每个问题检索最相关的文本块，送入 LLM 生成答案
@@ -115,10 +116,25 @@ python app.py
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| FRAME_INTERVAL_SECONDS | 5 | 帧提取间隔（秒）|
+| FRAME_INTERVAL_SECONDS | 10 | 帧提取间隔（秒）|
 | WHISPER_MODEL_SIZE | "base" | Whisper 模型大小 |
+| WHISPER_LANGUAGE | None | 语音识别语言（None为自动检测）|
 | CHUNK_DURATION_SECONDS | 30 | 文本块时长（秒）|
 | CHUNK_OVERLAP_SECONDS | 10 | 块重叠时长（秒）|
 | TOP_K_RETRIEVAL | 4 | 每问题检索的块数 |
 | OLLAMA_TEXT_MODEL | "qwen2.5:7b" | 文本模型 |
 | OLLAMA_VISION_MODEL | "llava:7b" | 视觉模型 |
+| FRAME_DESCRIBE_TIMEOUT | 90 | 单帧描述超时（秒）|
+| FRAME_DESCRIBE_MAX_RETRIES | 2 | 帧描述失败重试次数 |
+| FRAME_SIMILARITY_THRESHOLD | 0.95 | 相似帧跳过阈值 |
+| OLLAMA_MAX_RETRIES | 3 | LLM 调用重试次数 |
+
+## 更新日志
+
+### v2 (2026-05-25)
+
+- **性能优化**：帧提取间隔从 5s 调整为 10s，减少一半帧描述耗时
+- **相似帧跳过**：通过感知哈希自动跳过画面无变化的帧，进一步加速
+- **语言指定**：前端新增语言选择，解决有口音的讲者被误识别语言的问题
+- **重试机制**：帧描述和 LLM 问答均增加自动重试，提升稳定性
+- **超时优化**：调整各环节超时时间，适配 CPU 推理场景

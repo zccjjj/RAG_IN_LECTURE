@@ -71,6 +71,10 @@ uploadForm.addEventListener('submit', async function(e) {
     const formData = new FormData();
     formData.append('video', videoFile);
     formData.append('questions', questions);
+    const language = document.getElementById('language-select').value;
+    if (language) {
+        formData.append('language', language);
+    }
 
     // 禁用提交按钮
     submitBtn.disabled = true;
